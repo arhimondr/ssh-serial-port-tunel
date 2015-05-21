@@ -29,6 +29,7 @@ datanucleus.log
 # Build files
 .gradle/
 build/
+target/
 
 # Vagrant state files
 .vagrant
