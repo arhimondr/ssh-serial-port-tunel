@@ -57,6 +57,3 @@ nosetests.xml
 coverage.xml
 .coverage
 jacoco-server.exec*
-
-# Ignore local config files
-querygrid-driver-presto-test/src/main/resources/test-configuration-local.yaml
