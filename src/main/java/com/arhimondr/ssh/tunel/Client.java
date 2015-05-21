@@ -1,5 +1,7 @@
 package com.arhimondr.ssh.tunel;
 
+import com.fazecast.jSerialComm.SerialPort;
+
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -7,7 +9,10 @@ import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
 
+import static com.arhimondr.ssh.tunel.IOUtils.RATE_LIMIT;
+import static com.arhimondr.ssh.tunel.IOUtils.RATE_LIMIT_BODS;
 import static com.arhimondr.ssh.tunel.IOUtils.closeQuietly;
+import static com.fazecast.jSerialComm.SerialPort.*;
 
 public class Client {
 
@@ -23,6 +28,11 @@ public class Client {
         InputStream sshSocketInput = null;
         OutputStream sshSocketOutput = null;
 
+        InputStream serialPortInput = null;
+        OutputStream serialPortOutput = null;
+
+        SerialPort serialPort = null;
+
         try {
             serverSocket = new ServerSocket(SERVER_PORT, 0, InetAddress.getByName(SERVER_HOST));
 
@@ -34,18 +44,32 @@ public class Client {
             sshSocketInput = sshSocket.getInputStream();
             sshSocketOutput = sshSocket.getOutputStream();
 
-            System.out.println("Client connected.");
+            Logger.log("Client connected.");
 
-            SerialPortTransmitter serialPortTransmitter = new SerialPortTransmitter(
-                    COM_PORT_NAME, sshSocketInput, sshSocketOutput
+            serialPort = SerialPort.getCommPort(COM_PORT_NAME);
+            serialPort.openPort();
+            serialPort.setComPortParameters(RATE_LIMIT_BODS, 8, ONE_STOP_BIT, NO_PARITY);
+            serialPort.setFlowControl(FLOW_CONTROL_RTS_ENABLED | FLOW_CONTROL_CTS_ENABLED);
+//            serialPort.setComPortTimeouts(TIMEOUT_READ_SEMI_BLOCKING | TIMEOUT_WRITE_SEMI_BLOCKING, 100, 100);
+
+
+            serialPortInput = serialPort.getInputStream();
+            serialPortOutput = serialPort.getOutputStream();
+
+            Logger.log("Serial port initialized.");
+
+            DuplexPipe duplexPipe = new DuplexPipe(
+                    serialPortInput, sshSocketOutput, RATE_LIMIT,
+                    sshSocketInput, serialPortOutput, RATE_LIMIT
             );
 
-            serialPortTransmitter.startDuplexTransmission();
+            duplexPipe.startDuplexTransmission();
 
         } catch (IOException | InterruptedException e) {
             e.printStackTrace();
         } finally {
-            closeQuietly(sshSocketInput, sshSocketOutput);
+            closeQuietly(serialPortInput, serialPortOutput, sshSocketInput, sshSocketOutput);
+            closeQuietly(serialPort);
             closeQuietly(sshSocket);
             closeQuietly(serverSocket);
         }

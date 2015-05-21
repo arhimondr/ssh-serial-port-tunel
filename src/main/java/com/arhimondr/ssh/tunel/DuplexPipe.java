@@ -20,37 +20,37 @@ public class DuplexPipe {
     private final ExecutorCompletionService<Void> completionService =
             new ExecutorCompletionService<Void>(executorService);
 
-    private final InputStream inboundIn;
-    private final OutputStream inboundOut;
-    private final RateLimiter inboundRateLimiter;
+    private final InputStream serialPortIn;
+    private final OutputStream socketOut;
+    private final RateLimiter serialPortToSocketRateLimiter;
 
-    private final InputStream outboundIn;
-    private final OutputStream outboundOut;
-    private final RateLimiter outboundRateLimiter;
+    private final InputStream socketIn;
+    private final OutputStream serialPortOut;
+    private final RateLimiter socketToSerialPortRateLimiter;
 
 
-    public DuplexPipe(InputStream inboundIn,
-                      OutputStream inboundOut,
-                      InputStream outboundIn,
-                      OutputStream outboundOut,
-                      int inboundRate,
-                      int outboundRate) {
-        this.inboundIn = inboundIn;
-        this.inboundOut = inboundOut;
-        this.outboundIn = outboundIn;
-        this.outboundOut = outboundOut;
-        this.inboundRateLimiter = RateLimiter.create(inboundRate);
-        this.outboundRateLimiter = RateLimiter.create(outboundRate);
+    public DuplexPipe(InputStream serialPortIn,
+                      OutputStream socketOut,
+                      int serialPortToSocketRate,
+                      InputStream socketIn,
+                      OutputStream serialPortOut,
+                      int socketToSerialPortRate) {
+        this.serialPortIn = serialPortIn;
+        this.socketOut = socketOut;
+        this.socketIn = socketIn;
+        this.serialPortOut = serialPortOut;
+        this.serialPortToSocketRateLimiter = RateLimiter.create(serialPortToSocketRate);
+        this.socketToSerialPortRateLimiter = RateLimiter.create(socketToSerialPortRate);
     }
 
     public void startDuplexTransmission() throws InterruptedException, IOException {
-        startTransmission(inboundIn, inboundOut, "ssh-to-serial-port", inboundRateLimiter);
-        startTransmission(outboundIn, outboundOut, "serial-port-to-ssh", outboundRateLimiter);
+        startTransmission(serialPortIn, socketOut, "serial-port-to-socket", serialPortToSocketRateLimiter);
+        startTransmission(socketIn, serialPortOut, "socket-to-serial-port", socketToSerialPortRateLimiter);
 
         try {
             waitForCompletion();
         } finally {
-            closeQuietly(inboundIn, inboundOut, outboundIn, outboundOut);
+            closeQuietly(serialPortIn, socketOut, socketIn, serialPortOut);
             executorService.shutdownNow();
             executorService.awaitTermination(1, MINUTES);
         }
@@ -73,16 +73,22 @@ public class DuplexPipe {
             @Override
             public Void call() throws IOException {
                 byte[] buffer = new byte[BUFFER_SIZE];
-                int lastRead = -1;
-                while ((lastRead = inputStream.read(buffer)) != -1) {
-                    Logger.log("Bytes (" + lastRead + ") received from [" + type + "] in");
-                    if (lastRead > 0) {
-                        rateLimiter.acquire(lastRead);
-                        outputStream.write(buffer, 0, lastRead);
-                        Logger.log("Bytes (" + lastRead + ") writen to [" + type + "] out");
+                int lastRead;
+                try {
+                    while ((lastRead = inputStream.read(buffer)) != -1) {
+                        Logger.log("Bytes (" + lastRead + ") read via [" + type + "]");
+                        if (lastRead > 0) {
+                            rateLimiter.acquire(lastRead);
+                            outputStream.write(buffer, 0, lastRead);
+                            Logger.log("Bytes (" + lastRead + ") transmitted via [" + type + "]");
+                        } else {
+                            Thread.sleep(100);
+                        }
                     }
+                } catch (InterruptedException e) {
+                    Logger.log("[" + type + "] transmission interrupted");
                 }
-                Logger.log("[" + type + "] finished");
+                Logger.log("[" + type + "] transmission finished");
                 return null;
             }
         });

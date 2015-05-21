@@ -3,7 +3,10 @@ package com.arhimondr.ssh.tunel;
 import org.newsclub.net.unix.AFUNIXSocket;
 import org.newsclub.net.unix.AFUNIXSocketAddress;
 
-import java.io.*;
+import java.io.File;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.net.Socket;
 
 import static com.arhimondr.ssh.tunel.IOUtils.RATE_LIMIT;
@@ -15,7 +18,7 @@ public class Server {
     private static final String LOCAL_SSH_SERVER_HOST = "localhost";
     private static final int LOCAL_SSH_SERVER_PORT = 22;
 
-    private static final String SERIAL_PORT_VIRTUAL_FILE = "/home/andrii/pipe";
+    private static final String SERIAL_PORT_VIRTUAL_FILE = "/tmp/vm-serial-port-pipe";
 
     public static void main(String[] args) {
         Socket sshSocket = null;
@@ -44,7 +47,13 @@ public class Server {
 
             Logger.log("Server started.");
 
-            DuplexPipe duplexPipe = new DuplexPipe(sshSocketInput, pipeOutput, pipeInput, sshSocketOutput, RATE_LIMIT, RATE_LIMIT);
+            while (pipeInput.available() <= 0) {
+                Thread.sleep(100);
+            }
+
+            Logger.log("Client connected.");
+
+            DuplexPipe duplexPipe = new DuplexPipe(pipeInput, sshSocketOutput, RATE_LIMIT, sshSocketInput, pipeOutput, RATE_LIMIT);
             duplexPipe.startDuplexTransmission();
 
         } catch (IOException | InterruptedException e) {
